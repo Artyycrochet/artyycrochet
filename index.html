@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Artyy Crochet Portfolio</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Use Inter font family -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        :root {
+            --color-primary: #fef3f8; /* Very Light Pink (Lighter Background) */
+            --color-secondary: #f472b6; /* Pink 400 */
+            --color-dark: #be185d; /* Pink 700 */
+            --font-family: 'Inter', sans-serif;
+        }
+        body {
+            font-family: var(--font-family);
+            background-color: var(--color-primary); /* Very Light Pink Background */
+            color: #4c1130; /* Dark text for contrast */
+        }
+        .floral-bg {
+            /* Made floral background lighter for better contrast */
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><path id="petal" d="M0,0 Q1,-1 2,0 Q1,1 0,0" fill="%23f9a8d4" opacity="0.2"/></defs><use href="%23petal" transform="translate(10,10) scale(4) rotate(45)"/><use href="%23petal" transform="translate(50,25) scale(3) rotate(120)"/><use href="%23petal" transform="translate(80,70) scale(5) rotate(200)"/><use href="%23petal" transform="translate(25,90) scale(2) rotate(-30)"/></svg>');
+            background-size: 200px;
+            background-repeat: repeat;
+        }
+        .btn-primary {
+            @apply px-4 py-2 font-semibold text-white transition duration-200 ease-in-out transform rounded-lg shadow-lg hover:shadow-xl focus:outline-none focus:ring-4;
+            background-color: var(--color-secondary);
+            border: 2px solid var(--color-dark);
+        }
+        .btn-primary:hover {
+            transform: scale(1.05);
+            background-color: var(--color-dark);
+        }
+        .btn-nav {
+            @apply px-4 py-2 text-sm md:text-base font-medium rounded-full transition duration-150 ease-in-out border-2 border-transparent;
+            color: var(--color-dark);
+        }
+        .btn-nav.active {
+            /* Whitish-pink background and strong pink border when active */
+            @apply bg-pink-100/70 shadow-md border-pink-700;
+        }
+        .photo-container {
+            min-height: 250px;
+            background-color: white;
+            border: 2px dashed var(--color-dark);
+        }
+        .order-textbox {
+            resize: none;
+            border: 3px solid var(--color-dark);
+            background-color: var(--color-primary);
+            color: var(--color-dark);
+        }
+        
+        /* Highlight Animation for Page Headings */
+        @keyframes highlight-pop {
+            0% { transform: scale(1); opacity: 0.8; text-shadow: none; }
+            50% { transform: scale(1.01); opacity: 1; text-shadow: 0 0 10px rgba(255, 100, 150, 0.5); }
+            100% { transform: scale(1); opacity: 1; text-shadow: none; }
+        }
+
+        .highlight-on-load {
+            animation: highlight-pop 0.5s ease-out 1;
+        }
+    </style>
+</head>
+<body class="floral-bg min-h-screen flex flex-col">
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        // Auth and Firestore for data
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, getDocs, deleteDoc, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // Storage for image uploads
+        import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+
+        setLogLevel('Debug'); // Enable Firestore logging
+
+        // --- PRODUCTION CREDENTIALS: USING CANVAS GLOBALS ---
+        // MANDATORY: Use the global variables for configuration and app ID
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'artyy-crochet-portfolio-default'; 
+
+        // 3. Define the Owner's ID (You must replace 'YOUR_OWNER_UID' with your actual Firebase User UID to enable editing.)
+        let ownerId = 'zcH2NttoM8eBGbGQLntXiNGcdR52'; // <<< Owner's actual UID
+        // -----------------------------------------------------------------------------
+
+        let app, db, auth, storage; // Added storage
+        let currentUserId = null;
+        let isAuthReady = false;
+        let isEditing = false; // Global edit mode state
+
+        // Storage for page data
+        let homeData = { description: "Welcome to my creative space! I love working with yarn and beads to bring unique and handmade items to life. Take a look at my latest creations below." };
+        let crochetProjects = [];
+        let beadedProjects = [];
+
+        // --- FIREBASE INITIALIZATION & AUTH ---
+        async function initializeFirebase() {
+            try {
+                // Check if config is provided and is a non-empty object
+                if (Object.keys(firebaseConfig).length === 0) {
+                    throw new Error("Firebase configuration is empty or not provided.");
+                }
+
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                storage = getStorage(app); // Initialize Storage
+
+                // Start Authentication: All visitors (including owner) sign in anonymously or sign in
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        currentUserId = user.uid;
+                        isAuthReady = true;
+                        console.log("Auth State Changed: Logged in. UID:", currentUserId, "Owner ID:", ownerId);
+
+                        // If this is the owner or a viewer, initialize data listeners
+                        setupRealtimeListeners();
+                        
+                        updateOwnerControlsVisibility();
+                        // MANDATE: The first page to open should be the home page.
+                        setTimeout(() => showPage(window.currentView || 'home'), 500);
+
+                    } else {
+                        currentUserId = null;
+                        isAuthReady = false;
+                        console.log("Auth State Changed: Logged out.");
+                    }
+                });
+
+                // MANDATORY AUTH STEP: Use custom token if available, otherwise sign in anonymously.
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+                
+                // --- IMPROVED ERROR DISPLAY ---
+                const errorMessage = error.message || "Unknown initialization error occurred.";
+                document.getElementById('content').innerHTML = `
+                    <div class="p-8 bg-red-100 border border-red-400 rounded-xl max-w-xl mx-auto mt-10">
+                        <p class="text-xl font-bold text-red-700 mb-3">Initialization Error:</p>
+                        <p class="text-red-800">${errorMessage}</p>
+                        <p class="mt-4 text-sm text-red-600">Please provide the error message above to proceed with debugging.</p>
+                    </div>
+                `;
+                // --- END IMPROVED ERROR DISPLAY ---
+            }
+        }
+
+        // --- REALTIME DATA LISTENERS ---
+        function setupRealtimeListeners() {
+            // 1. Home Data Listener
+            const homeDocRef = doc(db, "artifacts", appId, "public", "data", "home_data", "description");
+            onSnapshot(homeDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    homeData.description = docSnap.data().description;
+                    if(window.currentView === 'home') renderHomePage();
+                } else if (currentUserId === ownerId) {
+                    // Owner creates initial data
+                    setDoc(homeDocRef, { description: homeData.description });
+                }
+            });
+
+            // 2. Crochet Projects Listener
+            const crochetColRef = collection(db, "artifacts", appId, "public", "data", "crochet_projects");
+            onSnapshot(query(crochetColRef), (snapshot) => {
+                crochetProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                crochetProjects.sort((a, b) => a.groupIndex - b.groupIndex);
+                if(window.currentView === 'crochet') renderCrochetPage();
+                console.log("Crochet projects updated.");
+            });
+
+            // 3. Beaded Projects Listener
+            const beadedColRef = collection(db, "artifacts", appId, "public", "data", "beaded_projects");
+            onSnapshot(query(beadedColRef), (snapshot) => {
+                beadedProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                beadedProjects.sort((a, b) => a.groupIndex - b.groupIndex);
+                if(window.currentView === 'beaded') renderBeadedPage();
+                console.log("Beaded projects updated.");
+            });
+
+            // 4. Order Listener (Only relevant if owner is viewing the page)
+            if (currentUserId === ownerId && window.currentView === 'order') {
+                displayRecentOrders();
+            }
+        }
+
+        // --- UI UTILITIES ---
+
+        function updateOwnerControlsVisibility() {
+            const isOwner = currentUserId === ownerId;
+            const updateButton = document.getElementById('update-button');
+            if (updateButton) {
+                updateButton.style.display = isOwner ? 'block' : 'none';
+            }
+            
+            document.querySelectorAll('[data-editable-caption]').forEach(el => {
+                el.contentEditable = isOwner && isEditing ? 'true' : 'false';
+                el.classList.toggle('border-pink-500', isOwner && isEditing);
+                el.classList.toggle('border-pink-300', !(isOwner && isEditing));
+            });
+
+            document.querySelectorAll('[data-editable-home]').forEach(el => {
+                el.contentEditable = isOwner && isEditing ? 'true' : 'false';
+                el.classList.toggle('border-pink-500', isOwner && isEditing);
+                 el.classList.toggle('border-pink-300', !(isOwner && isEditing));
+            });
+            
+            // Update button text
+            if (updateButton) {
+                updateButton.textContent = isEditing ? 'Save Changes' : 'Update';
+                updateButton.classList.toggle('bg-green-600', isEditing);
+                updateButton.classList.toggle('border-green-800', isEditing);
+                updateButton.classList.toggle('hover:bg-green-700', isEditing);
+
+                updateButton.classList.toggle('bg-pink-400', !isEditing);
+                updateButton.classList.toggle('border-pink-700', !isEditing);
+                updateButton.classList.toggle('hover:bg-pink-600', !isEditing);
+            }
+        }
+
+        function showPage(pageName) {
+            window.currentView = pageName;
+            const contentDiv = document.getElementById('content');
+            const navButtons = document.querySelectorAll('.btn-nav');
+            
+            navButtons.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.page === pageName);
+            });
+
+            if (isEditing) {
+                // Ask for confirmation before leaving edit mode without saving
+                const confirmLeave = confirm("You have unsaved changes. Are you sure you want to leave this page?");
+                if(confirmLeave){
+                    isEditing = false;
+                } else {
+                    // re-highlight the previous button
+                    navButtons.forEach(btn => btn.classList.remove('active'));
+                    document.querySelector(`.btn-nav[data-page='${window.lastView}']`).classList.add('active');
+                    return; // Stop page change
+                }
+            }
+            window.lastView = pageName;
+
+
+            updateOwnerControlsVisibility();
+
+            switch (pageName) {
+                case 'home':
+                    renderHomePage();
+                    break;
+                case 'crochet':
+                    renderCrochetPage();
+                    break;
+                case 'beaded':
+                    renderBeadedPage();
+                    break;
+                case 'order':
+                    renderOrderPage();
+                    break;
+                default:
+                    renderHomePage();
+            }
+            contentDiv.scrollTop = 0; // Scroll to top on page change
+        }
+
+        // --- PAGE RENDERING ---
+
+        function renderHomePage() {
+            const isOwner = currentUserId === ownerId;
+            const contentDiv = document.getElementById('content');
+
+            contentDiv.innerHTML = `
+                <div class="max-w-4xl mx-auto p-6 md:p-10">
+                    <h2 class="text-4xl md:text-5xl font-bold text-center mb-8 text-pink-700 highlight-on-load">About my website</h2>
+                    <div id="home-description-text"
+                         class="p-6 md:p-8 bg-white border-2 rounded-xl shadow-lg leading-relaxed text-lg transition-all duration-300 ${isOwner && isEditing ? 'border-pink-500' : 'border-pink-300'}"
+                         data-editable-home="${isOwner}"
+                         contenteditable="${isOwner && isEditing}"
+                         data-placeholder="Describe yourself and your craft here...">
+                        ${homeData.description}
+                    </div>
+                    ${isOwner && !isEditing ? `<p class="mt-4 text-sm text-center text-pink-700 italic">Click 'Update' to enable editing this box.</p>` : ''}
+                </div>
+            `;
+            // Re-apply visibility rules on content refresh
+            updateOwnerControlsVisibility();
+        }
+
+        function renderGallery(pageName, data) {
+            const isOwner = currentUserId === ownerId;
+            const title = pageName.charAt(0).toUpperCase() + pageName.slice(1) + ' Projects';
+            const contentDiv = document.getElementById('content');
+
+            let galleryHtml = `
+                <div class="max-w-6xl mx-auto p-4 md:p-8">
+                    <h2 class="text-4xl md:text-5xl font-bold text-center mb-8 text-pink-700 highlight-on-load">${title}</h2>
+                    <div id="gallery-grid" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            `;
+
+            if (data.length === 0 && isOwner) {
+                 galleryHtml += `<div class="md:col-span-3 text-center p-12 bg-white border-2 border-pink-300 rounded-xl shadow-lg">
+                    <p class="text-xl text-pink-700 mb-4">You have no projects yet! Click 'Update' then 'Add More Photos' to start.</p>
+                </div>`;
+            }
+
+            data.forEach((group, groupIndex) => {
+                group.photos.forEach((photo, photoIndex) => {
+                    const uniqueId = `${pageName}-${groupIndex}-${photoIndex}`;
+                    const fileInputId = `file-${uniqueId}`;
+
+                    galleryHtml += `
+                        <div class="flex flex-col space-y-3 bg-white border-2 p-4 rounded-xl shadow-lg transition duration-200 hover:shadow-2xl ${isOwner && isEditing ? 'border-pink-500' : 'border-pink-300'}">
+                            <!-- Photo Frame -->
+                            <div class="photo-container w-full aspect-square rounded-xl overflow-hidden flex items-center justify-center relative">
+                                
+                                <!-- Conditional rendering for click-to-upload functionality -->
+                                ${isOwner && isEditing ? 
+                                    // Owner in Edit Mode: clickable label covers image
+                                    `<label for="${fileInputId}" class="w-full h-full block relative cursor-pointer group">
+                                        <img id="img-${uniqueId}" src="${photo.url || 'https://placehold.co/500x500/fecddc/be185d?text=No+Photo'}" 
+                                             onerror="this.onerror=null;this.src='https://placehold.co/500x500/fecddc/be185d?text=Failed+to+Load';"
+                                             class="w-full h-full object-cover">
+                                        
+                                        <!-- Hover Overlay -->
+                                        <div class="absolute inset-0 bg-pink-700/50 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition duration-300">
+                                            <i class="fas fa-camera text-3xl text-white mb-2"></i>
+                                            <span class="text-base font-bold text-white">Click to Upload</span>
+                                        </div>
+                                        
+                                        <!-- Hidden File Input -->
+                                        <input type="file" id="${fileInputId}" accept="image/*" class="hidden">
+                                    </label>`
+                                    : 
+                                    // Viewer or Owner not editing: just show the image
+                                    `<img id="img-${uniqueId}" src="${photo.url || 'https://placehold.co/500x500/fecddc/be185d?text=No+Photo'}" 
+                                         onerror="this.onerror=null;this.src='https://placehold.co/500x500/fecddc/be185d?text=Failed+to+Load';"
+                                         class="w-full h-full object-cover">`
+                                }
+                                
+                            </div>
+                            
+                            <!-- Owner Caption Text Box -->
+                            <div class="p-2 border-2 rounded-lg text-sm text-gray-700 bg-pink-50/70"
+                                 data-editable-caption="${isOwner}"
+                                 id="caption-${uniqueId}"
+                                 contenteditable="${isOwner && isEditing}"
+                                 data-placeholder="Owner's description here...">
+                                ${photo.caption || 'A beautiful handmade piece.'}
+                            </div>
+                        </div>
+                    `;
+                });
+            });
+
+            galleryHtml += `</div>`; // End of grid
+
+            // Add More Photos Button (Always under the last frame of the last group)
+            if (isOwner) {
+                galleryHtml += `
+                    <div id="add-photos-container" class="mt-8 text-center md:col-span-3 ${!isEditing ? 'hidden':''}">
+                        <button class="btn-primary" id="add-more-photos-btn">
+                            <i class="fas fa-plus mr-2"></i> Add More Photos
+                        </button>
+                    </div>
+                `;
+            }
+
+
+            galleryHtml += `</div>`; // End of main container
+            contentDiv.innerHTML = galleryHtml;
+            
+            // Attach event listeners after content is rendered
+            if(isOwner && isEditing){
+                data.forEach((group, groupIndex) => {
+                    group.photos.forEach((photo, photoIndex) => {
+                         const uniqueId = `${pageName}-${groupIndex}-${photoIndex}`;
+                         const fileInputId = `file-${uniqueId}`;
+                         document.getElementById(fileInputId)?.addEventListener('change', (event) => handleFileUpload(event, pageName, groupIndex, photoIndex, uniqueId));
+                         document.getElementById(`caption-${uniqueId}`).addEventListener('input', (event) => updateCaptionData(pageName, groupIndex, photoIndex, event.target.textContent));
+                    });
+                });
+                document.getElementById('add-more-photos-btn')?.addEventListener('click', () => addMorePhotos(pageName));
+            }
+
+            updateOwnerControlsVisibility();
+        }
+
+        function renderCrochetPage() {
+            renderGallery('crochet', crochetProjects);
+        }
+
+        function renderBeadedPage() {
+            renderGallery('beaded', beadedProjects);
+        }
+
+        function renderOrderPage() {
+            const contentDiv = document.getElementById('content');
+            contentDiv.innerHTML = `
+                <div class="max-w-2xl mx-auto p-6 md:p-10">
+                    <h2 class="text-4xl md:text-5xl font-bold text-center mb-8 text-pink-700 highlight-on-load">Place Your Order</h2>
+                    <div class="bg-white border-2 border-pink-300 p-8 rounded-xl shadow-lg text-center">
+                        <p class="mb-6 text-lg text-pink-700">Ready for a custom creation? Send me a message below!</p>
+                        
+                        <button id="order-now-button" class="btn-primary mb-6">
+                            Order Now <i class="fas fa-shopping-basket ml-2"></i>
+                        </button>
+
+                        <div id="order-form-container" class="hidden mt-4">
+                            <textarea id="order-message-box" rows="6" 
+                                class="order-textbox w-full p-4 rounded-xl focus:ring-4 focus:ring-pink-300 placeholder-pink-300" 
+                                placeholder="Describe the custom piece you would like (colors, size, materials, etc.)."></textarea>
+                            
+                            <div class="flex justify-end mt-4">
+                                <button id="submit-order-btn" class="btn-primary">
+                                    Sent <i class="fas fa-paper-plane ml-2"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                         <div id="order-message-status" class="mt-4 text-pink-700 font-semibold hidden"></div>
+                    </div>
+                </div>
+                 <div id="recent-orders-container" class="max-w-2xl mx-auto p-6 md:p-10"></div>
+            `;
+            
+            document.getElementById('order-now-button').addEventListener('click', showOrderForm);
+            document.getElementById('submit-order-btn').addEventListener('click', submitOrder);
+            
+             if (currentUserId === ownerId) {
+                displayRecentOrders();
+            }
+        }
+
+        // --- INTERACTION LOGIC ---
+
+        function toggleEditMode() {
+            if (currentUserId !== ownerId) return; // Only owner can toggle
+
+            if (isEditing) {
+                // Currently editing, so now we save
+                saveProjectsData().then(() => {
+                    isEditing = false;
+                    showMessage('Changes saved successfully!', 'green');
+                    showPage(window.currentView); // Refresh page to remove listeners
+                }).catch(e => {
+                    console.error("Save failed:", e);
+                    showMessage('Error saving changes.', 'red');
+                    isEditing = true; // Stay in edit mode if save fails
+                    updateOwnerControlsVisibility();
+                });
+
+            } else {
+                // Not editing, so now we enter edit mode
+                isEditing = true;
+                showMessage('Editing mode enabled! Click "Save Changes" when done.', 'blue');
+                showPage(window.currentView); // Refresh page to add listeners and styles
+            }
+        }
+        
+        // --- FIREBASE STORAGE LOGIC (NEW) ---
+        async function uploadImage(file, pageName, groupIndex, photoIndex) {
+            if (!storage) throw new Error("Firebase Storage not initialized.");
+
+            // Create a unique path for the image
+            const filePath = `images/${appId}/${pageName}/${groupIndex}_${photoIndex}_${Date.now()}_${file.name}`;
+            const imageRef = storageRef(storage, filePath);
+
+            showMessage(`Uploading ${file.name}...`, 'blue');
+
+            try {
+                // Upload the file
+                const snapshot = await uploadBytes(imageRef, file);
+                
+                // Get the public download URL
+                const downloadURL = await getDownloadURL(snapshot.ref);
+
+                showMessage('Upload complete! URL saved.', 'green');
+                return downloadURL;
+
+            } catch (error) {
+                console.error("Error uploading file:", error);
+                showMessage(`Upload failed: ${error.message}`, 'red');
+                throw error;
+            }
+        }
+
+        // Updated function to use Firebase Storage instead of Data URL
+        async function handleFileUpload(event, pageName, groupIndex, photoIndex, uniqueId) {
+            if (currentUserId !== ownerId || !isEditing) return;
+
+            const file = event.target.files[0];
+            if (!file) return;
+
+            try {
+                // 1. Upload file to Firebase Storage
+                const url = await uploadImage(file, pageName, groupIndex, photoIndex);
+
+                // 2. Update the displayed image URL immediately for visual feedback
+                const imgElement = document.getElementById(`img-${uniqueId}`);
+                if (imgElement) {
+                    imgElement.src = url;
+                }
+
+                // 3. Update the local data structure (will be saved to Firestore on 'Save Changes' click)
+                let targetData = pageName === 'crochet' ? crochetProjects : beadedProjects;
+                if (targetData[groupIndex] && targetData[groupIndex].photos[photoIndex]) {
+                    targetData[groupIndex].photos[photoIndex].url = url;
+                }
+
+            } catch (e) {
+                // Error handled in uploadImage
+            }
+        }
+        // --- END FIREBASE STORAGE LOGIC ---
+
+        function updateCaptionData(pageName, groupIndex, photoIndex, newCaption) {
+            if (currentUserId !== ownerId || !isEditing) return;
+
+            let targetData = pageName === 'crochet' ? crochetProjects : beadedProjects;
+            if (targetData[groupIndex] && targetData[groupIndex].photos[photoIndex]) {
+                targetData[groupIndex].photos[photoIndex].caption = newCaption;
+            }
+        }
+
+        async function saveProjectsData() {
+            // Save Home Description
+            const homeDescText = document.getElementById('home-description-text')?.textContent;
+            if(homeDescText){
+                homeData.description = homeDescText;
+            }
+            const homeDocRef = doc(db, "artifacts", appId, "public", "data", "home_data", "description");
+            await setDoc(homeDocRef, { description: homeData.description });
+
+            // Save Crochet and Beaded Projects
+            const saveCollection = async (data, collectionName) => {
+                const colRef = collection(db, "artifacts", appId, "public", "data", collectionName);
+
+                const snapshot = await getDocs(colRef);
+                for(const docToDelete of snapshot.docs){
+                    await deleteDoc(docToDelete.ref);
+                }
+
+                for (let i = 0; i < data.length; i++) {
+                    const group = data[i];
+                     if(group.photos.some(p => p.url || p.caption !== 'A beautiful handmade piece.')) {
+                        await addDoc(colRef, {
+                            groupIndex: group.groupIndex,
+                            photos: group.photos
+                        });
+                    }
+                }
+            };
+
+            await saveCollection(crochetProjects, 'crochet_projects');
+            await saveCollection(beadedProjects, 'beaded_projects');
+        }
+
+        function addMorePhotos(pageName) {
+            if (currentUserId !== ownerId || !isEditing) {
+                showMessage('You must be the owner and in Edit Mode to add photos.', 'red');
+                return;
+            }
+
+            let targetData = pageName === 'crochet' ? crochetProjects : beadedProjects;
+            const nextIndex = targetData.length > 0 ? Math.max(...targetData.map(g => g.groupIndex)) + 1 : 1;
+
+            const newGroup = {
+                groupIndex: nextIndex,
+                photos: [
+                    { url: '', caption: 'New photo slot 1' },
+                    { url: '', caption: 'New photo slot 2' },
+                    { url: '', caption: 'New photo slot 3' }
+                ]
+            };
+
+            targetData.push(newGroup);
+            if (pageName === 'crochet') {
+                renderCrochetPage();
+            } else {
+                renderBeadedPage();
+            }
+
+            // Scroll to the new button position
+            document.getElementById('add-photos-container')?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
+
+
+        // --- ORDER PAGE LOGIC ---
+        function showOrderForm() {
+            document.getElementById('order-now-button').classList.add('hidden');
+            document.getElementById('order-form-container').classList.remove('hidden');
+            document.getElementById('order-message-box').focus();
+        }
+
+        async function submitOrder() {
+            const messageBox = document.getElementById('order-message-box');
+            const statusDiv = document.getElementById('order-message-status');
+            const message = messageBox.value.trim();
+
+            if (message.length < 10) {
+                statusDiv.textContent = 'Please write a more detailed message (min 10 characters).';
+                statusDiv.classList.remove('hidden');
+                return;
+            }
+
+            statusDiv.textContent = 'Sending...';
+            statusDiv.classList.remove('hidden');
+
+            try {
+                const ordersColRef = collection(db, "artifacts", appId, "public", "data", "orders");
+                await addDoc(ordersColRef, {
+                    timestamp: new Date(),
+                    message: message,
+                    viewerId: currentUserId // Note: This will be anonymous ID if not authenticated
+                });
+
+                statusDiv.textContent = 'Order sent! I will be in touch soon.';
+                messageBox.value = '';
+                setTimeout(() => {
+                    document.getElementById('order-now-button').classList.remove('hidden');
+                    document.getElementById('order-form-container').classList.add('hidden');
+                    statusDiv.classList.add('hidden');
+                }, 3000);
+
+            } catch (error) {
+                console.error("Error submitting order:", error);
+                statusDiv.textContent = 'Error sending message. Please try again.';
+            }
+        }
+
+        function displayRecentOrders() {
+            const ordersContainer = document.getElementById('recent-orders-container');
+            if(!ordersContainer) return;
+            const ordersColRef = collection(db, "artifacts", appId, "public", "data", "orders");
+            
+            const q = query(collection(db, "artifacts", appId, "public", "data", "orders"), orderBy("timestamp", "desc"), limit(5));
+
+            onSnapshot(q, (snapshot) => {
+                const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                let ordersHtml = `<div class="mt-12 pt-6 border-t-2 border-pink-300">
+                    <h3 class="text-2xl font-bold text-pink-700 mb-4">Recent Orders (Owner View)</h3>`;
+
+                if (orders.length === 0) {
+                    ordersHtml += `<p class="italic text-gray-500">No orders received yet.</p>`;
+                } else {
+                    ordersHtml += `<div class="space-y-4">`;
+                    orders.forEach(order => {
+                        const date = order.timestamp ? new Date(order.timestamp.toDate()).toLocaleString() : 'N/A';
+                        const viewerUid = order.viewerId.substring(0, 8) + '...';
+                        ordersHtml += `
+                            <div class="bg-pink-100 p-4 rounded-lg shadow-md">
+                                <p class="text-sm font-semibold text-pink-700">${date} - Viewer ID: ${viewerUid}</p>
+                                <p class="mt-1 text-gray-800">${order.message}</p>
+                            </div>
+                        `;
+                    });
+                    ordersHtml += `</div>`;
+                }
+
+                ordersHtml += `</div>`;
+                ordersContainer.innerHTML = ordersHtml;
+            });
+        }
+
+
+        // --- MESSAGE HANDLER (Instead of alert()) ---
+        function showMessage(text, type = 'blue') {
+            const msgBox = document.getElementById('global-message');
+            if(!msgBox) return;
+            msgBox.textContent = text;
+            msgBox.className = `fixed top-4 right-4 p-3 rounded-lg shadow-xl text-white z-50 transition-transform transform translate-x-full`;
+            
+            // This forces a reflow to restart animation
+            void msgBox.offsetWidth;
+
+            msgBox.classList.remove('translate-x-full');
+            msgBox.classList.add('translate-x-0');
+
+
+            let bgColor;
+            if (type === 'green') bgColor = 'bg-green-500';
+            else if (type === 'red') bgColor = 'bg-red-500';
+            else bgColor = 'bg-blue-500';
+
+            msgBox.classList.add(bgColor);
+
+            setTimeout(() => {
+                msgBox.classList.remove('translate-x-0');
+                msgBox.classList.add('translate-x-full');
+            }, 3000);
+        }
+
+        window.onload = initializeFirebase;
+        
+        // Make functions globally accessible on the window object
+        window.showPage = showPage;
+        window.toggleEditMode = toggleEditMode;
+        
+    </script>
+
+    <!-- Global Message Box -->
+    <div id="global-message" class="fixed top-4 right-4 p-3 rounded-lg shadow-xl text-white z-50 transition-transform transform translate-x-full duration-500"></div>
+
+
+    <!-- HEADER & NAVIGATION -->
+    <header class="sticky top-0 z-10 bg-white/80 backdrop-blur-sm shadow-md py-4">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+            <h1 class="text-2xl font-extrabold text-pink-700 tracking-wider">
+                <i class="fas fa-magic mr-2"></i> Artyy Crochet
+            </h1>
+            
+            <!-- Navigation Links -->
+            <nav class="flex space-x-2 md:space-x-4">
+                <button data-page="home" class="btn-nav active" onclick="showPage('home')">Home</button>
+                <button data-page="crochet" class="btn-nav" onclick="showPage('crochet')">Crochet Projects</button>
+                <button data-page="beaded" class="btn-nav" onclick="showPage('beaded')">Beaded Projects</button>
+                <button data-page="order" class="btn-nav" onclick="showPage('order')">Place Your Order</button>
+            </nav>
+
+            <!-- Owner-Only Update Button (Top Right) -->
+            <button id="update-button" class="btn-primary" style="display: none;" onclick="toggleEditMode()">
+                Update
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT AREA -->
+    <main id="content" class="flex-grow p-4 md:p-8"></main>
+
+    <!-- FOOTER -->
+    <footer class="bg-pink-300/50 py-4 text-center text-sm text-pink-700">
+        <p>&copy; 2024 Handmade Portfolio. All Rights Reserved.</p>
+    </footer>
+
+</body>
+</html>
+
+
